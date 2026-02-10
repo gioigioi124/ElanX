@@ -58,3 +58,5 @@
 ## 23/12/2025 [UPDATE DELETE] Sửa xóa xe thành công qua dialog
 
 ## 25/12/2025 Tạo phần backend và API cho Order, test thành công qua Thunder1
+
+## 10/02/2026 Đổi repo rút gọn tên
