@@ -1,0 +1,303 @@
+import VehicleList from "@/vehicles/VehicleList";
+import VehicleOrderList from "@/orders/VehicleOrderList";
+import DispatcherOrderDetail from "@/orders/DispatcherOrderDetail";
+import OrderPrintPreview from "@/orders/OrderPrintPreview";
+import OrderConfirmedPrintPreview from "@/orders/OrderConfirmedPrintPreview";
+import DispatchManifestPreview from "@/orders/DispatchManifestPreview";
+import PageHeader from "@/components/PageHeader";
+import { useState, useEffect, useRef } from "react";
+import { useVehicleContext } from "@/vehicles/VehicleContext";
+import { userService } from "@/services/userService";
+import { orderService } from "@/services/orderService";
+import { useAuth } from "@/context/AuthContext";
+import AssignOrdersToVehicleDialog from "@/vehicles/AssignOrdersToVehicleDialog";
+import AssignVehicleToOrderDialog from "@/orders/AssignVehicleToOrderDialog";
+import OrderEditDialog from "@/orders/OrderEditDialog";
+import VehicleFormDialog from "@/vehicles/VehicleFormDialog";
+
+const getTodayDate = () => {
+  const today = new Date();
+  return today.toISOString().split("T")[0];
+};
+
+const DispatcherDashboard = () => {
+  const { user } = useAuth();
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [vehicleOrders, setVehicleOrders] = useState([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [vehicleAssignDialogOpen, setVehicleAssignDialogOpen] = useState(false);
+  const [orderToAssignVehicle, setOrderToAssignVehicle] = useState(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [openVehicleDialog, setOpenVehicleDialog] = useState(false);
+  const [orderToEdit, setOrderToEdit] = useState(null);
+  const [staffList, setStaffList] = useState([]);
+  const [selectedStaff, setSelectedStaff] = useState("all");
+
+  const [manifestPreviewOpen, setManifestPreviewOpen] = useState(false);
+  const [manifestItems, setManifestItems] = useState([]);
+
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
+  const [printConfirmedPreviewOpen, setPrintConfirmedPreviewOpen] =
+    useState(false);
+  const [ordersToPrint, setOrdersToPrint] = useState([]);
+  const [ordersToConfirmedPrint, setOrdersToConfirmedPrint] = useState([]);
+
+  const todayDate = getTodayDate();
+  const [dateRange, setDateRange] = useState({
+    fromDate: todayDate,
+    toDate: todayDate,
+  });
+  const { triggerRefresh: triggerVehicleRefresh } = useVehicleContext();
+  const updateOrderCountRef = useRef(null);
+
+  // Lưu hàm updateOrderCount từ VehicleList
+  const handleOrderCountUpdate = (updateFn) => {
+    updateOrderCountRef.current = updateFn;
+  };
+
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        const data = await userService.getStaffList();
+        setStaffList(data);
+        // Chỉ staff mới mặc định chọn chính mình, các role khác (leader, admin, warehouse) đều chọn "Tất cả"
+        if (user && user.role === "staff") {
+          setSelectedStaff(user._id);
+        } else {
+          setSelectedStaff("all");
+        }
+      } catch (error) {
+        console.error("Lỗi khi tải danh sách nhân viên:", error);
+      }
+    };
+    fetchStaff();
+  }, [user]);
+
+  // Reset selection when vehicle changes
+  useEffect(() => {
+    setSelectedOrderIds([]);
+    setSelectedOrder(null); // Reset đơn hàng đang chọn khi đổi xe
+    setVehicleOrders([]); // Reset danh sách đơn hàng khi đổi xe để tránh hiển thị dữ liệu cũ
+  }, [selectedVehicle]);
+
+  const handleDateSearch = (fromDate, toDate) => {
+    setDateRange({ fromDate, toDate });
+    setRefreshTrigger((prev) => prev + 1);
+  };
+
+  const handleUnassign = () => {
+    setRefreshTrigger((prev) => prev + 1);
+    // Chỉ cập nhật số lượng đơn hàng cho xe hiện tại
+    if (selectedVehicle?._id && updateOrderCountRef.current) {
+      updateOrderCountRef.current(selectedVehicle._id);
+    }
+    setSelectedOrder(null);
+  };
+
+  const handleRefresh = () => {
+    setRefreshTrigger((prev) => prev + 1);
+    // Chỉ cập nhật số lượng đơn hàng cho xe hiện tại
+    if (selectedVehicle?._id && updateOrderCountRef.current) {
+      updateOrderCountRef.current(selectedVehicle._id);
+    }
+  };
+
+  const handleOrdersLoaded = (orders) => {
+    setVehicleOrders(orders);
+
+    // Logic update data mới nhất cho đơn hàng đang chọn (nếu có)
+    // KHÔNG tự động chọn đơn hàng mới khi đổi xe
+    if (selectedOrder && orders.length > 0) {
+      const found = orders.find((o) => o._id === selectedOrder._id);
+      if (found) {
+        setSelectedOrder(found);
+      } else {
+        // Nếu đơn hàng đang chọn không còn trong danh sách (do bị xóa hoặc đổi xe) -> Bỏ chọn
+        setSelectedOrder(null);
+      }
+    }
+  };
+
+  const handleToggleSelectOrder = (orderId) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(orderId)
+        ? prev.filter((id) => id !== orderId)
+        : [...prev, orderId]
+    );
+  };
+
+  const handleSelectAllOrders = (allOrderIds) => {
+    if (selectedOrderIds.length === allOrderIds.length) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(allOrderIds);
+    }
+  };
+
+  const handlePrint = (orders) => {
+    setOrdersToPrint(orders);
+    setPrintPreviewOpen(true);
+  };
+
+  const handlePrintConfirmed = (orders) => {
+    setOrdersToConfirmedPrint(orders);
+    setPrintConfirmedPreviewOpen(true);
+  };
+
+  const handlePrintManifest = (items) => {
+    setManifestItems(items);
+    setManifestPreviewOpen(true);
+  };
+
+  const handleCreateOrder = () => {
+    setOrderToEdit(null);
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSuccess = async () => {
+    handleRefresh();
+    if (selectedOrder && orderToEdit && selectedOrder._id === orderToEdit._id) {
+      try {
+        const updatedOrder = await orderService.getOrder(orderToEdit._id);
+        setSelectedOrder(updatedOrder);
+      } catch (error) {
+        console.error("Không thể tải lại đơn hàng:", error);
+      }
+    }
+  };
+
+  const handleAssignVehicle = (order) => {
+    setOrderToAssignVehicle(order);
+    setVehicleAssignDialogOpen(true);
+  };
+
+  const handleAssignVehicleSuccess = () => {
+    setRefreshTrigger((prev) => prev + 1);
+    if (selectedVehicle?._id && updateOrderCountRef.current) {
+      updateOrderCountRef.current(selectedVehicle._id);
+    }
+    if (
+      selectedOrder &&
+      orderToAssignVehicle &&
+      selectedOrder._id === orderToAssignVehicle._id
+    ) {
+      orderService.getOrder(selectedOrder._id).then((updatedOrder) => {
+        setSelectedOrder(updatedOrder);
+      });
+    }
+  };
+
+  return (
+    <div className="container mx-auto p-2 md:p-4 max-w-none">
+      <PageHeader
+        title="Bảng Điều Vận"
+        showDateRangeSearch={true}
+        onDateSearch={handleDateSearch}
+        defaultToToday={true}
+        showStaffFilter={true}
+        selectedStaff={selectedStaff}
+        onStaffChange={setSelectedStaff}
+        staffList={staffList}
+        currentPage="dispatcher"
+        onCreateOrder={handleCreateOrder}
+        onCreateVehicle={() => setOpenVehicleDialog(true)}
+        user={user}
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-2 md:gap-4 lg:h-[calc(100vh-200px)]">
+        {/* Cột 1: Xe */}
+        <div className="lg:col-span-3 bg-white rounded-lg shadow-md p-3 md:p-4 overflow-y-auto border border-gray-100 max-h-[50vh] lg:max-h-none">
+          <VehicleList
+            selectedVehicle={selectedVehicle}
+            onSelectVehicle={setSelectedVehicle}
+            fromDate={dateRange.fromDate}
+            toDate={dateRange.toDate}
+            creator={selectedStaff === "all" ? "" : selectedStaff}
+            onOrderCountUpdate={handleOrderCountUpdate}
+          />
+        </div>
+
+        {/* Cột 2: Đơn hàng trong xe */}
+        <div className="lg:col-span-3 bg-white rounded-lg shadow-md p-3 md:p-4 overflow-y-auto border border-gray-100 max-h-[50vh] lg:max-h-none">
+          <VehicleOrderList
+            vehicle={selectedVehicle}
+            selectedOrder={selectedOrder}
+            onSelectOrder={setSelectedOrder}
+            onUnassign={handleUnassign}
+            onAssign={handleAssignVehicle}
+            onAssignClick={() => setAssignDialogOpen(true)}
+            refreshTrigger={refreshTrigger}
+            onOrdersLoaded={handleOrdersLoaded}
+            selectedOrderIds={selectedOrderIds}
+            onToggleSelect={handleToggleSelectOrder}
+            onSelectAll={handleSelectAllOrders}
+            onPrint={handlePrint}
+            onPrintConfirmed={handlePrintConfirmed}
+          />
+        </div>
+
+        {/* Cột 3: Xác nhận hàng loạt cho Xe */}
+        <div className="md:col-span-2 lg:col-span-6 bg-white rounded-lg shadow-md p-3 md:p-4 overflow-y-auto border border-gray-100 max-h-[60vh] lg:max-h-none">
+          <DispatcherOrderDetail
+            orders={vehicleOrders}
+            selectedOrder={selectedOrder}
+            vehicle={selectedVehicle}
+            onRefresh={handleRefresh}
+            onPrintManifest={handlePrintManifest}
+          />
+        </div>
+      </div>
+
+      <AssignOrdersToVehicleDialog
+        open={assignDialogOpen}
+        onOpenChange={setAssignDialogOpen}
+        vehicle={selectedVehicle}
+        onSuccess={handleRefresh}
+      />
+
+      <OrderEditDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        order={orderToEdit}
+        onSuccess={handleEditSuccess}
+      />
+
+      <VehicleFormDialog
+        open={openVehicleDialog}
+        onOpenChange={setOpenVehicleDialog}
+        onSuccess={triggerVehicleRefresh}
+      />
+
+      <OrderPrintPreview
+        open={printPreviewOpen}
+        onOpenChange={setPrintPreviewOpen}
+        selectedOrders={ordersToPrint}
+      />
+
+      <OrderConfirmedPrintPreview
+        open={printConfirmedPreviewOpen}
+        onOpenChange={setPrintConfirmedPreviewOpen}
+        selectedOrders={ordersToConfirmedPrint}
+      />
+
+      <DispatchManifestPreview
+        open={manifestPreviewOpen}
+        onOpenChange={setManifestPreviewOpen}
+        vehicle={selectedVehicle}
+        items={manifestItems}
+      />
+
+      <AssignVehicleToOrderDialog
+        open={vehicleAssignDialogOpen}
+        onOpenChange={setVehicleAssignDialogOpen}
+        order={orderToAssignVehicle}
+        onSuccess={handleAssignVehicleSuccess}
+      />
+    </div>
+  );
+};
+
+export default DispatcherDashboard;
